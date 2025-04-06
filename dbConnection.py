@@ -7,7 +7,7 @@ USERNAME = "root"  # Change if needed
 PASSWORD = "Mysql3306m"  # Set your MySQL password
 HOST = "localhost"
 PORT = "3306"
-DATABASE_NAME = "online_exam_system"
+DATABASE_NAME = "online_exams_system"
 
 # MySQL connection URL
 DATABASE_URL = f"mysql+pymysql://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE_NAME}"

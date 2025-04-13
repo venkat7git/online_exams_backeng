@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Database credentials
 USERNAME = "root"  # Change if needed
-PASSWORD = "Mysql3306m"  # Set your MySQL password
+PASSWORD = "root#123"  # Set your MySQL password
 HOST = "localhost"
 PORT = "3306"
 DATABASE_NAME = "online_exam_system"

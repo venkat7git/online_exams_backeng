@@ -10,6 +10,8 @@ import ssl
 import bcrypt
 import uvicorn
 import re
+from typing import List, Literal, Optional
+from datetime import date
 
 # === Local Imports ===
 from dbConnection import get_db
@@ -202,6 +204,75 @@ def login_user(request: LoginRequest, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Login failed: {e}")
+
+class MCQQuestion(BaseModel):
+    question_text: str
+    question_type: Literal["mcq"]
+    marks: int
+    options: List[str]
+    correct_index: int  # 1-based index
+
+
+class DescriptiveQuestion(BaseModel):
+    question_text: str
+    question_type: Literal["descriptive"]
+    marks: int
+    descriptive_answer: str
+
+
+Question = MCQQuestion | DescriptiveQuestion
+
+
+class ExamCreateRequest(BaseModel):
+    subject_id: int
+    title: str
+    description: str  # ✅ Added this field
+    total_marks: int
+    date: date
+    duration_minutes: int
+    created_by: int
+    questions: List[Question]
+
+
+@app.post("/create-exam")
+def create_exam(request: ExamCreateRequest, db: Session = Depends(get_db)):
+    try:
+        import json
+        questions_json = json.dumps([q.dict() for q in request.questions])
+
+        result = db.execute(text("""
+            CALL create_exam_with_questions_json(
+                :subject_id, :title, :description, :total_marks, :date,
+                :duration_minutes, :created_by, :questions_json
+            )
+        """), {
+            "subject_id": request.subject_id,
+            "title": request.title,
+            "description": request.description,  # ✅ Pass the description here
+            "total_marks": request.total_marks,
+            "date": request.date,
+            "duration_minutes": request.duration_minutes,
+            "created_by": request.created_by,
+            "questions_json": questions_json
+        })
+
+        exam_id_row = result.fetchone()
+        db.commit()
+
+        if exam_id_row:
+            return {
+                "message": "Exam created successfully",
+                "exam_id": exam_id_row[0]
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to retrieve exam ID")
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creating exam: {e}")
+
+
+
 
 # === Optional: Run directly ===
 if __name__ == "__main__":

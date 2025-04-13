@@ -6,3 +6,5 @@ fastapi
 uvicorn
 pandas
 spacy
+sqlalchemy
+pymysql

@@ -272,6 +272,32 @@ def create_exam(request: ExamCreateRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error creating exam: {e}")
 
 
+class DepartmentRequest(BaseModel):
+    department_id: int
+
+@app.post("/exams/by-department")
+def get_exams_by_department(request: DepartmentRequest, db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text(""" 
+            CALL get_exams_by_department_json(:department_id)
+        """), {"department_id": request.department_id})
+
+        row = result.fetchone()
+
+        if row and row[0]:
+            import json
+            return json.loads(row[0])
+
+        return []
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error fetching exams: {e}")
+
+
+
+
+
 
 
 # === Optional: Run directly ===

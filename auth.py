@@ -295,6 +295,27 @@ def get_exams_by_department(request: DepartmentRequest, db: Session = Depends(ge
         raise HTTPException(status_code=500, detail=f"Error fetching exams: {e}")
 
 
+class LecturerRequest(BaseModel):
+    lecturer_id: int
+
+@app.post("/exams/by-lecturer")
+def get_exams_by_lecturer(request: LecturerRequest, db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text(""" 
+            CALL get_exams_by_lecturer_json(:lecturer_id)
+        """), {"lecturer_id": request.lecturer_id})
+
+        row = result.fetchone()
+
+        if row and row[0]:
+            import json
+            return json.loads(row[0])
+
+        return []
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error fetching exams: {e}")
 
 
 

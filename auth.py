@@ -1,44 +1,27 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from dbConnection import get_db
-from dbModels import Admin, Lecturer, Student
+from sqlalchemy import text
+from pydantic import BaseModel, EmailStr
+from enum import Enum as PyEnum
 import smtplib
 import random
 import ssl
-from pydantic import BaseModel, EmailStr
-from enum import Enum as PyEnum
+import bcrypt
+import uvicorn
+import re
 
-# === Enums ===
-class GenderEnum(str, PyEnum):
-    Male = "Male"
-    Female = "Female"
-    Other = "Other"
+# === Local Imports ===
+from dbConnection import get_db
 
-# === Pydantic Schemas ===
-class StudentCreate(BaseModel):
-    id: str
-    email: EmailStr
-    password: str
-    roll_number: str
-    branch: str
-    class_year: str
-    gender: GenderEnum
-    mobile_number: str
-    first_name: str
-    last_name: str
-
-class EmailRequest(BaseModel):
-    email: str
-
-class OTPVerifyRequest(BaseModel):
-    email: str
-    otp: str
+# === Configuration ===
+EMAIL_ADDRESS = "venkat7softcy@gmail.com"
+EMAIL_PASSWORD = "ztxu zffx xhdd tnts"  # Use environment variables in production
 
 # === FastAPI App Setup ===
 app = FastAPI()
 
-# Enable CORS
+# === CORS Middleware ===
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,80 +30,180 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
+class RoleEnum(str, PyEnum):
+    student = "student"
+    lecturer = "lecturer"
+
+# === Pydantic Schemas ===
+class UserCreate(BaseModel):
+    
+    email: EmailStr
+    password: str
+    role: RoleEnum
+    employee_id: str | None = None
+    roll_number: str | None = None
+    
+
+class EmailRequest(BaseModel):
+    email: str
+
+class OTPVerifyRequest(BaseModel):
+    email: str
+    otp: str
+
 # === OTP Store ===
 otp_store = {}
 
-# === Email Configuration ===
-EMAIL_ADDRESS = "venkat7softcy@gmail.com"
-EMAIL_PASSWORD = "ztxu zffx xhdd tnts"  # Use your Gmail app password
-
-def send_email(to_email, otp):
+# === Helper Functions ===
+def send_email(to_email: str, otp: str):
     subject = "Your OTP Code"
     body = f"Your OTP is: {otp}"
     message = f"Subject: {subject}\n\n{body}"
-
     context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_ADDRESS, to_email, message)
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_ADDRESS, to_email, message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Email send failed: {e}")
 
 # === Routes ===
 
 @app.post("/send-otp")
 def send_otp(request: EmailRequest):
-    email = request.email
     otp = str(random.randint(100000, 999999))
-    otp_store[email] = otp
-
-    try:
-        send_email(email, otp)
-        return {"message": "OTP sent to email"}
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail="Failed to send OTP")
+    otp_store[request.email] = otp
+    send_email(request.email, otp)
+    return {"message": "OTP sent to email"}
 
 @app.post("/verify-otp")
 def verify_otp(request: OTPVerifyRequest):
-    email = request.email
-    otp = request.otp
-
-    if otp_store.get(email) == otp:
-        del otp_store[email]
+    stored_otp = otp_store.get(request.email)
+    if stored_otp and stored_otp == request.otp:
+        del otp_store[request.email]
         return {"message": "OTP verified successfully"}
-    else:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
+    raise HTTPException(status_code=400, detail="Invalid OTP")
 
-@app.get("/admins")
-def get_admins(db: Session = Depends(get_db)):
-    admins = db.query(Admin).all()
-    if not admins:
-        raise HTTPException(status_code=404, detail="No admins found")
-    return admins
+@app.get("/departments")
+def get_departments(db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text("CALL get_departments()"))
+        return result.mappings().all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching departments: {e}")
 
-@app.get("/lecturers")
-def get_lecturers(db: Session = Depends(get_db)):
-    lecturers = db.query(Lecturer).all()
-    if not lecturers:
-        raise HTTPException(status_code=404, detail="No lecturers found")
-    return lecturers
-
-import uuid
-
-@app.post("/student-register")
-def create_student(student: StudentCreate, db: Session = Depends(get_db)):
-    existing = db.query(Student).filter(Student.email == student.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Student already exists")
-
-    new_student_data = student.dict()
-    new_student_data["id"] = str(uuid.uuid4())  # Generate a unique UUID for id
-
-    new_student = Student(**new_student_data)
-    db.add(new_student)
-    db.commit()
-    db.refresh(new_student)
-
-    return {"message": "Student registered successfully"}
+@app.get("/years")
+def get_years(db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text("CALL get_years()"))
+        return result.mappings().all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching years: {e}")
 
 
-# Run with: uvicorn filename:app --reload
+
+
+class UserExistenceCheck(BaseModel):
+    role: str  # should be 'student' or 'lecturer'
+    roll_number: str | None = None
+    employee_id: str | None = None
+
+# === Route ===
+@app.post("/check-user-exists")
+def check_user_exists(data: UserExistenceCheck, db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text("""
+            CALL check_user_exists(:role, :roll_number, :employee_id)
+        """), {
+            "role": data.role,
+            "roll_number": data.roll_number,
+            "employee_id": data.employee_id
+        })
+
+        row = result.mappings().first()
+        print("result",result)
+        print("row value",row)
+        print("row status",row.get("status"))
+        if row.get("roll_number") == data.roll_number:
+            return {"exists": True, "data": dict(row)}
+        return {"exists": False, "message": "User mismatch"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking user existence: {e}")
+
+class CreateUserRequest(BaseModel):
+    password: str
+    role: str  # should be 'student' or 'lecturer'
+    roll_number: str | None = None
+    employee_id: str | None = None
+
+# === API Endpoint ===
+@app.post("/create-user")
+def create_user(user: CreateUserRequest, db: Session = Depends(get_db)):
+    try:
+        # Hash the password before sending to the DB
+        hashed_password = bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+        db.execute(text("""
+            CALL create_student_lecturer(:password, :role, :roll_number, :employee_id)
+        """), {
+            "password": hashed_password,
+            "role": user.role,
+            "roll_number": user.roll_number,
+            "employee_id": user.employee_id
+        })
+
+        db.commit()
+        return {"message": "User created successfully"}
+
+    except Exception as e:
+        print("error:",e)
+        return {"error":e}
+        # error_msg = str(e.orig)
+        # match = re.search(r"Duplicate entry '.*' for key '.*'", error_msg)
+        # if match:
+            
+        #     return {"message": "user already exists"}
+        # else:
+        #     return {"message": "something went wrong"}
+            
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+# === Login Endpoint ===
+@app.post("/login")
+def login_user(request: LoginRequest, db: Session = Depends(get_db)):
+    try:
+        # 1. Call stored procedure to get user by email
+        result = db.execute(text("CALL login_user(:email)"), {
+            "email": request.email,
+        })
+
+        user = result.mappings().first()
+
+        # 2. Check if user exists
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # 3. Compare entered password with hashed password from DB
+        stored_hash = user["password"]
+        if not bcrypt.checkpw(request.password.encode("utf-8"), stored_hash.encode("utf-8")):
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # 4. Return user info (without password)
+        user_data = {key: value for key, value in user.items() if key != "password"}
+        return {"message": "Login successful", "user": user_data}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {e}")
+
+# === Optional: Run directly ===
+if __name__ == "__main__":
+    print("✅ Starting FastAPI server...")
+    uvicorn.run

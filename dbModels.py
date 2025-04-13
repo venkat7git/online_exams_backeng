@@ -21,16 +21,24 @@ class Lecturer(Base):
     department = Column(String, unique=True, nullable=False)
 
 
-class Student(Base):
-    __tablename__ = "student_registration"  # ✅ Changed from dash to underscore
+class RoleEnum(str, PyEnum):
+    student = "student"
+    lecturer = "lecturer"
 
-    id = Column(String, primary_key=True, index=True)
-    email = Column(String(100), unique=True, nullable=False)
-    password = Column(String(255), nullable=False)
-    roll_number = Column(String(50))
-    branch = Column(String(100))
-    class_year = Column(String(50))
-    gender = Column(Enum("Male", "Female", "Other", name="gender_enum"), nullable=False)
-    mobile_number = Column(String(15))
-    first_name = Column(String(50))
-    last_name = Column(String(50))
+class GenderEnum(str, PyEnum):
+    male = "male"
+    female = "female"
+    other = "other"
+
+class UserCreate(BaseModel):
+    first_name: str
+    last_name: str
+    email: EmailStr
+    password: str
+    role: RoleEnum
+    employee_id: str | None = None
+    roll_number: str | None = None
+    phone: str
+    gender: GenderEnum
+    department_id: int
+    class_id: int

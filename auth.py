@@ -319,6 +319,32 @@ def get_exams_by_lecturer(request: LecturerRequest, db: Session = Depends(get_db
 
 
 
+class ExamDetailsRequest(BaseModel):
+    exam_id: int
+    role: Literal["primary_admin", "admin", "lecturer", "student"]
+
+
+@app.post("/exam/details")
+def get_exam_details(request: ExamDetailsRequest, db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text(""" 
+            CALL get_exam_details_by_id_json(:exam_id, :role)
+        """), {
+            "exam_id": request.exam_id,
+            "role": request.role
+        })
+
+        row = result.fetchone()
+
+        if row and row[0]:
+            import json
+            return json.loads(row[0])
+
+        return {}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error fetching exam details: {e}")
 
 
 # === Optional: Run directly ===
